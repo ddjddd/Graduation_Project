@@ -47,8 +47,9 @@ C.rot_90 = False
 
 img_path = options.test_path
 
+
+# 설정값에 맞추어 입력이미지 크기 통일
 def format_img_size(img, C):
-	""" formats the image size based on config """
 	img_min_side = float(C.im_size)
 	(height,width,_) = img.shape
 		
@@ -63,8 +64,9 @@ def format_img_size(img, C):
 	img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
 	return img, ratio	
 
+
+# 설정값에 맞추어 입력이미지 채널 변환
 def format_img_channels(img, C):
-	""" formats the image channels based on config """
 	img = img[:, :, (2, 1, 0)]
 	img = img.astype(np.float32)
 	img[:, :, 0] -= C.img_channel_mean[0]
@@ -75,21 +77,23 @@ def format_img_channels(img, C):
 	img = np.expand_dims(img, axis=0)
 	return img
 
+
+# 입력이미지 통일
 def format_img(img, C):
-	""" formats an image for model prediction based on config """
 	img, ratio = format_img_size(img, C)
 	img = format_img_channels(img, C)
 	return img, ratio
 
-# Method to transform the coordinates of the bounding box to its original size
-def get_real_coordinates(ratio, x1, y1, x2, y2):
 
+# 도출된 물체 영역을 원래의 이미지 크기 비율에 맞추어 변환
+def get_real_coordinates(ratio, x1, y1, x2, y2):
 	real_x1 = int(round(x1 // ratio))
 	real_y1 = int(round(y1 // ratio))
 	real_x2 = int(round(x2 // ratio))
 	real_y2 = int(round(y2 // ratio))
 
-	return (real_x1, real_y1, real_x2 ,real_y2)
+	return (real_x1, real_y1, real_x2, real_y2)
+
 
 class_mapping = C.class_mapping
 
@@ -118,26 +122,21 @@ img_input = Input(shape=input_shape_img)
 roi_input = Input(shape=(C.num_rois, 4))
 feature_map_input = Input(shape=input_shape_features)
 
-# define the base network (resnet here, can be VGG, Inception, etc)
-shared_layers = nn.nn_base(img_input, trainable=True)
 
-# define the RPN, built on the base layers
+# 훈련시킨 신경망과 동일하게 네트워크 구성
+shared_layers = nn.nn_base(img_input, trainable=True)
 num_anchors = len(C.anchor_box_scales) * len(C.anchor_box_ratios)
 rpn_layers = nn.rpn(shared_layers, num_anchors)
-
 classifier = nn.classifier(feature_map_input, roi_input, C.num_rois, nb_classes=len(class_mapping), trainable=True)
-
 model_rpn = Model(img_input, rpn_layers)
 model_classifier_only = Model([feature_map_input, roi_input], classifier)
-
 model_classifier = Model([feature_map_input, roi_input], classifier)
-
 print('Loading weights from {}'.format(C.model_path))
 model_rpn.load_weights(C.model_path, by_name=True)
 model_classifier.load_weights(C.model_path, by_name=True)
-
 model_rpn.compile(optimizer='sgd', loss='mse')
 model_classifier.compile(optimizer='sgd', loss='mse')
+
 
 all_imgs = []
 
@@ -154,24 +153,23 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	st = time.time()
 	filepath = os.path.join(img_path,img_name)
 
-	img = cv2.imread(filepath)
+	img = cv2.imread(filepath)				# 이미지 입력
 
 	X, ratio = format_img(img, C)
 
 	if K.image_dim_ordering() == 'tf':
 		X = np.transpose(X, (0, 2, 3, 1))
 
-	# get the feature maps and output from the RPN
+	# 관심영역 추출 네트워크에서 feature map 과 네트워크 output 도출
 	[Y1, Y2, F] = model_rpn.predict(X)
-	
 
+	# 네트워크 output 을 통하여 관심영역을 추출하는 함수 실행
 	R = roi_helpers.rpn_to_roi(Y1, Y2, C, K.image_dim_ordering(), overlap_thresh=0.7)
 
-	# convert from (x1,y1,x2,y2) to (x,y,w,h)
+	# (x1,y1,x2,y2) data를 (x,y,w,h) 형으로 변환
 	R[:, 2] -= R[:, 0]
 	R[:, 3] -= R[:, 1]
 
-	# apply the spatial pyramid pooling to the proposed regions
 	bboxes = {}
 	probs = {}
 
@@ -181,7 +179,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 			break
 
 		if jk == R.shape[0]//C.num_rois:
-			#pad R
+			# pad R
 			curr_shape = ROIs.shape
 			target_shape = (curr_shape[0],C.num_rois,curr_shape[2])
 			ROIs_padded = np.zeros(target_shape).astype(ROIs.dtype)
@@ -219,6 +217,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 
 	all_dets = []
 
+	# 검출된 결과 값을
 	for key in bboxes:
 		bbox = np.array(bboxes[key])
 
@@ -242,6 +241,4 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 
 	print('Elapsed time = {}'.format(time.time() - st))
 	print(all_dets)
-	#cv2.imshow('img', img)
-	#cv2.waitKey(0)
 	cv2.imwrite('./results_imgs/{}.png'.format(idx),img)
