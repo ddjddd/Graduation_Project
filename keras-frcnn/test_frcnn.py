@@ -11,7 +11,7 @@ from keras import backend as K
 from keras.layers import Input
 from keras.models import Model
 from keras_frcnn import roi_helpers
-from nutrient import nutrient_checker
+from nutrient import Nutrient_checker
 
 sys.setrecursionlimit(40000)
 
@@ -243,4 +243,4 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	print('Elapsed time = {}'.format(time.time() - st))
 	print(all_dets)
 	cv2.imwrite('./results_imgs/{}.png'.format(idx),img)
-
+	Nutrient_checker.nutrient_checker(all_dets)
